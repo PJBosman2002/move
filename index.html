@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Move Tracker</title>
+<link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#1d1b18">
+<style>
+:root{--bg:#eceeed;--fg:#1d1b18;--card:#fff;--mut:#6a665f;--line:#d9dbd8;--kraft:#9a6b3f;--tape:#f2c94c;color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#161513;--fg:#f1eee8;--card:#22201d;--mut:#a29c92;--line:#35322d;--kraft:#c99a66}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,sans-serif;padding:env(safe-area-inset-top) 0 calc(64px + env(safe-area-inset-bottom))}
+main{max-width:640px;margin:0 auto;padding:12px}
+h1,h2,h3{margin:.2em 0 .4em;line-height:1.15}h2{font-size:1.15rem}
+a{color:inherit;text-decoration:none}small,.mut{color:var(--mut)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin:10px 0}
+.row{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin:6px 0}
+.row .g{flex:1;min-width:0}.row .g small{display:block}
+.sw{width:10px;align-self:stretch;border-radius:4px;flex:none}
+.pill{font-size:.75rem;padding:2px 8px;border-radius:99px;border:1px solid var(--line);white-space:nowrap}
+.s1{background:#fff3c4;color:#5c4400}.s2{background:#d6efd8;color:#14461b}.s3{background:#cfe0ff;color:#12306b}
+button,select,input,textarea{font:inherit;color:inherit;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:9px 11px;max-width:100%}
+button{cursor:pointer;min-height:42px}button.pri{background:var(--kraft);border-color:var(--kraft);color:#fff}
+button.warn{color:#b42318}input[type=checkbox]{width:20px;height:20px;padding:0}
+input,select,textarea{width:100%}input[type=file]{display:none}
+label{display:block;margin:8px 0 2px;font-size:.85rem;color:var(--mut)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chips button{flex:1 1 auto}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.grid>div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}
+.grid b{font-size:1.7rem;display:block;font-family:"Arial Black",system-ui,sans-serif}
+.hero{border-radius:12px;padding:14px;color:#fff;margin:6px 0}.hero b{font:900 2.6rem/1 "Arial Black",system-ui,sans-serif}
+.li{display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}.li span{flex:1}
+.li button{min-height:34px;padding:4px 9px}
+.qr{width:170px;margin:8px auto}.qr svg{width:100%;display:block;border:1px solid var(--line)}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--fg);padding-bottom:env(safe-area-inset-bottom)}
+nav a{flex:1;text-align:center;padding:14px 0;color:var(--bg);font-size:.85rem}nav a.on{background:var(--kraft);color:#fff}
+img.ph{max-width:100%;border-radius:8px;margin-top:6px}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);width:min(92vw,420px)}
+dialog::backdrop{background:#0007}dialog .row{background:none;border:0;padding:0}
+.slots{display:grid;gap:3px}.slots button{min-height:26px;padding:0;font-size:.7rem}.slots .u{background:var(--line);color:var(--mut)}
+#toast{position:fixed;left:50%;bottom:78px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:99px;display:none}
+video{width:100%;border-radius:10px;background:#000}
+.num{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+</style></head><body>
+<main id="app"></main><div id="toast"></div><dialog id="dlg"></dialog>
+<nav id="nav"><a href="#/">Home</a><a href="#/list">List</a><a href="#/scan">Scan</a><a href="#/labels">Labels</a><a href="#/more">More</a></nav>
+<script src="qrcode.js"></script><script src="jspdf.umd.min.js"></script>
+<script>
+const ST=['At house','In transit','Arrived','Placed'],SZ=['Small','Medium','Large'],FL=['Fragile','Heavy','Open first','This way up'];
+const DEF={name:'8-up A4 (99.1x67.7)',cols:2,rows:4,w:99.1,h:67.7,mL:4.65,mT:13.1,mR:4.65,mB:13.1,gx:2.5,gy:0,pad:3,ox:0,oy:0};
+const PF=[['cols','Columns'],['rows','Rows'],['w','Label width (mm)'],['h','Label height (mm)'],['mL','Left margin'],['mT','Top margin'],['mR','Right margin'],['mB','Bottom margin'],['gx','Horizontal gap'],['gy','Vertical gap'],['pad','Inner label padding'],['ox','Nudge X (mm)'],['oy','Nudge Y (mm)']];
+let S,Q={q:'',st:'',room:''},SEL=new Set(),stream=null;
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=t=>new Date(t).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+let _db;const idb=()=>_db||(_db=new Promise((ok,no)=>{const r=indexedDB.open('move',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)}));
+const load=async()=>{const d=await idb();return new Promise(ok=>{const q=d.transaction('kv').objectStore('kv').get('s');q.onsuccess=()=>ok(q.result);q.onerror=()=>ok(null)})};
+const save=async()=>{try{(await idb()).transaction('kv','readwrite').objectStore('kv').put(S,'s')}catch(e){toast('Could not save')}};
+const fresh=()=>({nb:1,ni:1,boxes:[],items:[],log:[],rooms:{General:'#5f6368','Kitchen':'#c2410c','Living room':'#1d4ed8','Main bedroom':'#6d28d9','Guest bedroom':'#0f766e','Guest bathroom':'#be185d','Main bathroom':'#a16207'},presets:[{...DEF}],cur:DEF.name,used:{}});
+const box=n=>S.boxes.find(b=>b.n==n),item=i=>S.items.find(x=>x.id==i),kids=n=>S.boxes.filter(b=>b.parent==n),its=n=>S.items.filter(i=>i.box==n);
+const desc=n=>[n,...kids(n).flatMap(k=>desc(k.n))],col=r=>S.rooms[r]||'#5f6368',P=()=>S.presets.find(p=>p.name==S.cur)||S.presets[0];
+const log=m=>{S.log.unshift({t:new Date().toISOString(),m});S.log.length=Math.min(S.log.length,1500)};
+const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2200)};
+const url=n=>location.origin+location.pathname+'#/box/'+n;
+const pill=s=>`<span class="pill s${ST.indexOf(s)}">${s}</span>`;
+const nm=b=>'Box '+b.n+(b.desc?' ('+b.desc+')':'');
+function dlg(title,body,ok){const d=$('#dlg');d.innerHTML=`<form method="dialog"><h3>${title}</h3>${body}<div class="row" style="margin-top:12px"><button value="x">Cancel</button><button value="ok" class="pri">OK</button></div></form>`;d.onclose=()=>{d.returnValue=='ok'&&ok(d)};d.showModal()}
+function qrSvg(t){const q=qrcode(0,'M');q.addData(t);q.make();const n=q.getModuleCount();let p='';for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(q.isDark(r,c))p+=`M${c+1} ${r+1}h1v1h-1z`;return `<svg viewBox="0 0 ${n+2} ${n+2}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d="${p}" fill="#000"/></svg>`}
+const pic=f=>new Promise(ok=>{const im=new Image();im.onload=()=>{const k=Math.min(1,900/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.7))};im.src=URL.createObjectURL(f)});
+function setStatus(kind,id,st){
+ if(kind=='b'){const b=box(id);log(`Box ${id}: ${b.status} to ${st}`);desc(id).forEach(m=>{box(m).status=st;its(m).forEach(i=>i.status=st)})}
+ else{const i=item(id);log(`${i.name}: ${i.status} to ${st}`);i.status=st}save()}
+const units=()=>[...S.boxes.filter(b=>!b.parent).map(b=>({k:'b',o:b,room:b.room})),...S.items.filter(i=>!i.box).map(i=>({k:'i',o:i,room:i.room}))];
+function row(u){const o=u.o,b=u.k=='b';return `<a class="row" href="#/${b?'box/'+o.n:'item/'+o.id}"><i class="sw" style="background:${col(u.room)}"></i><div class="g"><b>${b?'Box '+o.n+(o.desc?' · '+esc(o.desc):''):esc(o.name)}</b><small>${esc(u.room)}${b?' · '+o.size+' · '+its(o.n).length+' items'+(kids(o.n).length?', '+kids(o.n).length+' boxes':''):o.qty>1?' · x'+o.qty:''}${o.date?' · '+o.date:''}</small></div>${pill(o.status)}</a>`}
+const opts=(a,v)=>a.map(x=>`<option${x==v?' selected':''}>${esc(x)}</option>`).join('');
+const stBtns=(k,id,cur)=>`<div class="chips">${ST.map(s=>`<button data-a="st" data-k="${k}" data-id="${id}" data-v="${s}" class="${cur==s?'pri':''}">${s}</button>`).join('')}</div>`;
+const fld=(k,id,f,l,v,t='text',x='')=>`<label>${l}</label><input type="${t}" ${x} data-f="${f}" data-k="${k}" data-id="${id}" value="${esc(v)}">`;
+const photo=(k,id,o)=>`${o.photo?`<img class="ph" src="${o.photo}">`:''}<label class="btn" style="margin-top:8px"><span class="pill" style="display:inline-block;padding:10px 14px">${o.photo?'Replace photo':'Add photo'}</span><input type="file" accept="image/*" data-f="photo" data-k="${k}" data-id="${id}"></label>`;
+const carriers=()=>`<datalist id="cr"><option>Us, trip 1<option>Us, trip 2<option>Moving company</datalist>`;
+
+function vHome(){
+ const u=units(),c=ST.map(s=>u.filter(x=>x.o.status==s).length);
+ const rooms=Object.keys(S.rooms).map(r=>{const a=u.filter(x=>x.room==r);return a.length?`<a class="row" href="#/list" data-a="rm" data-v="${esc(r)}"><i class="sw" style="background:${col(r)}"></i><div class="g"><b>${esc(r)}</b></div><small>${a.filter(x=>x.o.status=='Placed').length}/${a.length} placed</small></a>`:''}).join('');
+ return `<h1>Move Tracker</h1><div class="grid">${ST.map((s,i)=>`<a href="#/list" data-a="fs" data-v="${s}"><div><b>${c[i]}</b><small>${s}</small></div></a>`).join('')}</div>
+ <div class="chips" style="margin:12px 0"><button class="pri" data-a="nb">+ Box</button><button data-a="ni">+ Standalone item</button><a href="#/scan"><button>Scan box</button></a></div>
+ ${u.length?'<h2>By room</h2>'+rooms:'<div class="card">Nothing yet. Add a box or a large item to start.</div>'}`}
+function vList(){
+ const q=Q.q.toLowerCase();let h='';
+ if(!q){h=units().filter(x=>(!Q.st||x.o.status==Q.st)&&(!Q.room||x.room==Q.room)).map(row).join('')}
+ else{
+  h=S.boxes.filter(b=>(!Q.st||b.status==Q.st)&&(!Q.room||b.room==Q.room)&&(('box '+b.n+' '+(b.desc||'')).toLowerCase().includes(q))).map(b=>row({k:'b',o:b,room:b.room})).join('');
+  h+=S.items.filter(i=>(!Q.st||i.status==Q.st)&&i.name.toLowerCase().includes(q)).map(i=>{const b=i.box&&box(i.box);return b?`<a class="row" href="#/box/${b.n}"><i class="sw" style="background:${col(b.room)}"></i><div class="g"><b>${esc(i.name)}</b><small>in ${esc(nm(b))} · ${esc(b.room)}</small></div>${pill(i.status)}</a>`:row({k:'i',o:i,room:i.room})}).join('')}
+ return `<h1>Everything</h1><input id="q" placeholder="Search boxes and items" value="${esc(Q.q)}" data-a="q"><div class="num" style="margin:8px 0"><select data-a="qs"><option value="">All statuses</option>${opts(ST,Q.st)}</select><select data-a="qr"><option value="">All rooms</option>${opts(Object.keys(S.rooms),Q.room)}</select></div>${h||'<p class="mut">No matches.</p>'}`}
+function vBox(n){
+ const b=box(n);if(!b)return '<p>Box not found. <a href="#/list">Back</a></p>';
+ const ok=S.boxes.filter(x=>!desc(n).includes(x.n)),par=b.parent&&box(b.parent);
+ return `<div class="hero" style="background:${col(b.room)}"><b>Box ${b.n}</b><div>${esc(b.room)} · ${b.size}${par?' · inside <a href="#/box/'+par.n+'"><u>Box '+par.n+'</u></a>':''}</div></div>
+ ${stBtns('b',n,b.status)}
+ <div class="card">${fld('b',n,'desc','Descriptor (optional)',b.desc||'')}
+ <div class="num"><div><label>Size</label><select data-f="size" data-k="b" data-id="${n}">${opts(SZ,b.size)}</select></div><div><label>Destination</label><select data-f="room" data-k="b" data-id="${n}">${opts(Object.keys(S.rooms),b.room)}</select></div></div>
+ <label>Inside box</label><select data-f="parent" data-k="b" data-id="${n}"><option value="">Not in a box</option>${ok.map(x=>`<option value="${x.n}"${x.n==b.parent?' selected':''}>${esc(nm(x))}</option>`).join('')}</select>
+ <div class="num">${fld('b',n,'date','Trip date (optional)',b.date||'','date')}${fld('b',n,'carrier','Carried by',b.carrier||'','text','list="cr"')}</div>${carriers()}
+ <label>Flags</label><div class="chips">${FL.map(f=>`<label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" style="width:20px" data-f="flag" data-v="${f}" data-k="b" data-id="${n}"${(b.flags||[]).includes(f)?' checked':''}>${f}</label>`).join('')}</div>
+ ${photo('b',n,b)}</div>
+ <h2>Contents</h2>${its(n).map(i=>`<div class="li"><span>${i.qty>1?i.qty+' x ':''}${esc(i.name)}</span><button data-a="mv" data-id="${i.id}">Move</button><button class="warn" data-a="rmi" data-id="${i.id}">Delete</button></div>`).join('')||'<small>No items yet.</small>'}
+ ${kids(n).map(k=>row({k:'b',o:k,room:k.room})).join('')}
+ <div class="card"><label>Add items (one per line or comma-separated, "2x plates" sets quantity)</label><textarea id="add" rows="3"></textarea><button class="pri" style="margin-top:6px" data-a="addi" data-id="${n}">Add to box</button></div>
+ <div class="card"><div class="qr">${qrSvg(url(n))}</div><small style="display:block;text-align:center;word-break:break-all">${esc(url(n))}</small></div>
+ <h2>History</h2>${S.log.filter(l=>l.m.startsWith('Box '+n+':')||l.m.startsWith('Box '+n+' ')).map(l=>`<div class="li"><span>${esc(l.m)}</span><small>${fmt(l.t)}</small></div>`).join('')||'<small>Nothing yet.</small>'}
+ <button class="warn" style="margin-top:14px" data-a="delb" data-id="${n}">Delete box</button>`}
+function vItem(id){
+ const i=item(id);if(!i)return '<p>Item not found.</p>';
+ return `<div class="hero" style="background:${col(i.room)}"><b style="font-size:1.6rem">${esc(i.name)}</b><div>${esc(i.room)}</div></div>${stBtns('i',id,i.status)}
+ <div class="card">${fld('i',id,'name','Name',i.name)}<div class="num">${fld('i',id,'qty','Quantity',i.qty,'number','min=1')}<div><label>Room</label><select data-f="room" data-k="i" data-id="${id}">${opts(Object.keys(S.rooms),i.room)}</select></div></div>
+ <div class="num">${fld('i',id,'date','Trip date (optional)',i.date||'','date')}${fld('i',id,'carrier','Carried by',i.carrier||'','text','list="cr"')}</div>${carriers()}${fld('i',id,'note','Notes (size, door/lift fit...)',i.note||'')}${photo('i',id,i)}</div>
+ <button class="warn" data-a="rmi" data-id="${id}">Delete item</button>`}
+function vScan(){setTimeout(startScan,50);return `<h1>Scan a box label</h1><video id="vid" playsinline muted></video><p id="sm" class="mut">Point the camera at a box QR code.</p>`}
+async function startScan(){
+ const v=$('#vid');if(!v)return;
+ if(!('BarcodeDetector' in window)){$('#sm').textContent='In-app scanning is not available in this browser. Scan with your normal camera app instead.';return}
+ try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});v.srcObject=stream;await v.play();const d=new BarcodeDetector({formats:['qr_code']});
+  const tick=async()=>{if(!stream)return;try{const r=await d.detect(v);const m=r[0]&&r[0].rawValue.match(/#\/box\/(\d+)/);if(m){stopScan();location.hash='#/box/'+m[1];return}}catch(e){}setTimeout(tick,250)};tick()}
+ catch(e){$('#sm').textContent='Camera blocked. Allow camera access for this app and try again.'}}
+const stopScan=()=>{stream&&stream.getTracks().forEach(t=>t.stop());stream=null};
+function vLabels(){
+ const p=P(),per=p.cols*p.rows,used=new Set(S.used[p.name]||[]),needW=p.mL+p.cols*p.w+(p.cols-1)*p.gx+p.mR,needH=p.mT+p.rows*p.h+(p.rows-1)*p.gy+p.mB,bad=needW>210.01||needH>297.01;
+ return `<h1>Print labels</h1><div class="card"><label>Label layout</label><select data-a="pre">${opts(S.presets.map(x=>x.name),p.name)}</select>
+ <div class="chips" style="margin-top:6px"><button data-a="pnew">Save as new</button><button class="warn" data-a="pdel">Delete layout</button></div>
+ <div class="num">${PF.map(([k,l])=>`<div><label>${l}</label><input type="number" step="any" data-a="pf" data-v="${k}" value="${p[k]}"></div>`).join('')}</div>
+ <p style="color:${bad?'#b42318':'inherit'}"><small>Layout needs ${needW.toFixed(1)} x ${needH.toFixed(1)} mm on a 210 x 297 mm page${bad?'. This does not fit, so adjust it.':'.'}</small></p></div>
+ <div class="card"><h2>Labels already used on this sheet</h2><small>Tap a slot to mark it used or free.</small>
+ <div class="slots" style="grid-template-columns:repeat(${p.cols},1fr);margin:8px 0">${Array.from({length:per},(_,i)=>`<button data-a="slot" data-v="${i}" class="${used.has(i)?'u':''}">${used.has(i)?'used':i+1}</button>`).join('')}</div><button data-a="newsheet">New sheet (all free)</button></div>
+ <div class="card"><h2>Boxes to print</h2><div class="chips"><button data-a="sel" data-v="new">Unprinted</button><button data-a="sel" data-v="all">All</button><button data-a="sel" data-v="none">None</button></div>
+ ${S.boxes.map(b=>`<label style="display:flex;gap:10px;align-items:center;color:inherit;font-size:1rem;margin:8px 0"><input type="checkbox" style="width:20px;flex:none" data-a="pick" data-id="${b.n}"${SEL.has(b.n)?' checked':''}><i class="sw" style="background:${col(b.room)};width:10px;height:22px;align-self:auto"></i><span style="flex:1">${esc(nm(b))}</span><small>${b.printed?'printed':''}</small></label>`).join('')||'<small>No boxes yet.</small>'}
+ <button class="pri" style="width:100%;margin-top:8px" data-a="pdf">Export PDF (${SEL.size})</button><small>Print at 100% / Actual size, not Fit to page.</small></div>`}
+function vMore(){return `<h1>More</h1>
+ <div class="card"><h2>Backup</h2><small>Everything is stored on this phone. Save a backup file now and then, or open it on another device.</small><div class="chips" style="margin-top:8px"><button data-a="exp">Export backup</button><label class="btn" style="margin:0"><span class="pill" style="display:inline-block;padding:10px 14px">Import backup</span><input type="file" accept=".json" data-f="imp"></label><button data-a="csv">Packing list (CSV)</button></div><button style="margin-top:8px" data-a="persist">Protect data from auto-clearing</button></div>
+ <div class="card"><h2>Rooms</h2>${Object.keys(S.rooms).map(r=>`<div class="li"><i class="sw" style="background:${S.rooms[r]};width:18px;height:18px"></i><span>${esc(r)}</span><input type="color" style="width:50px;padding:2px" data-a="rc" data-v="${esc(r)}" value="${S.rooms[r]}"></div>`).join('')}<button style="margin-top:8px" data-a="room">Add room</button></div>
+ <h2>History</h2>${S.log.slice(0,150).map(l=>`<div class="li"><span>${esc(l.m)}</span><small>${fmt(l.t)}</small></div>`).join('')||'<small>Nothing yet.</small>'}`}
+function render(){
+ stopScan();const h=location.hash.replace('#','')||'/',[,v,a]=h.split('/');
+ $('#app').innerHTML=!S?'':v=='box'?vBox(+a):v=='item'?vItem(+a):v=='list'?vList():v=='scan'?vScan():v=='labels'?vLabels():v=='more'?vMore():vHome();
+ document.querySelectorAll('nav a').forEach(x=>x.classList.toggle('on',x.getAttribute('href')=='#/'+(v||'')))}
+function newBox(){const b={n:S.nb++,size:'Medium',room:'General',status:'At house',flags:[],created:Date.now()};S.boxes.push(b);log(`Box ${b.n}: created`);save();location.hash='#/box/'+b.n}
+const act={
+ nb:newBox,
+ ni(){dlg('New standalone item',`<input id="n" placeholder="Name (e.g. Fridge)"><label>Room</label><select id="r">${opts(Object.keys(S.rooms))}</select>`,d=>{const name=d.querySelector('#n').value.trim();if(!name)return;const i={id:S.ni++,name,qty:1,box:null,room:d.querySelector('#r').value,status:'At house'};S.items.push(i);log(`${name}: added`);save();location.hash='#/item/'+i.id})},
+ st(d){setStatus(d.k,+d.id,d.v);render()},
+ addi(d){const t=$('#add').value,n=+d.id,b=box(n);t.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(s=>{const m=s.match(/^(\d+)\s*[x×]\s*(.+)$/i);S.items.push({id:S.ni++,name:m?m[2]:s,qty:m?+m[1]:1,box:n,room:b.room,status:b.status})});log(`Box ${n}: items added`);save();render()},
+ mv(d){const i=item(+d.id);dlg('Move item',`<select id="to"><option value="">Take out of box (standalone)</option>${S.boxes.map(b=>`<option value="${b.n}"${b.n==i.box?' selected':''}>${esc(nm(b))}</option>`).join('')}</select>`,x=>{const v=x.querySelector('#to').value,old=box(i.box);i.box=v?+v:null;if(v){i.status=box(+v).status;i.room=box(+v).room}else if(old)i.room=old.room;log(`Box ${old?old.n:'-'}: ${i.name} moved to ${v?'Box '+v:'standalone'}`);save();render()})},
+ rmi(d){const i=item(+d.id);if(!confirm('Delete '+i.name+'?'))return;S.items=S.items.filter(x=>x!=i);log(`${i.box?'Box '+i.box+': ':''}${i.name} deleted`);save();location.hash=i.box?'#/box/'+i.box:'#/list';render()},
+ delb(d){const n=+d.id,b=box(n);if(!confirm('Delete Box '+n+'? Its items become standalone and nested boxes move up one level.'))return;its(n).forEach(i=>{i.box=b.parent||null;if(!b.parent)i.room=b.room});kids(n).forEach(k=>k.parent=b.parent);S.boxes=S.boxes.filter(x=>x!=b);SEL.delete(n);log(`Box ${n}: deleted`);save();location.hash='#/list'},
+ fs(d){Q={q:'',st:d.v,room:''}},rm(d){Q={q:'',st:'',room:d.v}},
+ q(d,el){Q.q=el.value;const p=el.selectionStart;render();const e=$('#q');e.focus();e.setSelectionRange(p,p)},
+ qs(d,el){Q.st=el.value;render()},qr(d,el){Q.room=el.value;render()},
+ pre(d,el){S.cur=el.value;save();render()},
+ pf(d,el){P()[d.v]=parseFloat(el.value)||0;save();if(['cols','rows'].includes(d.v))render()},
+ pnew(){dlg('Save layout as',`<input id="n" placeholder="e.g. Avery L7163">`,x=>{const n=x.querySelector('#n').value.trim();if(!n||S.presets.some(p=>p.name==n))return toast('Name missing or taken');S.presets.push({...P(),name:n});S.cur=n;save();render()})},
+ pdel(){if(S.presets.length<2)return toast('Keep at least one layout');if(!confirm('Delete layout '+S.cur+'?'))return;S.presets=S.presets.filter(p=>p.name!=S.cur);S.cur=S.presets[0].name;save();render()},
+ slot(d){const s=new Set(S.used[S.cur]||[]),i=+d.v;s.has(i)?s.delete(i):s.add(i);S.used[S.cur]=[...s];save();render()},
+ newsheet(){S.used[S.cur]=[];save();render()},
+ pick(d,el){el.checked?SEL.add(+d.id):SEL.delete(+d.id);render()},
+ sel(d){SEL=new Set(S.boxes.filter(b=>d.v=='all'||(d.v=='new'&&!b.printed)).map(b=>b.n));render()},
+ pdf:exportPdf,
+ exp(){dl(JSON.stringify(S),'move-backup-'+new Date().toISOString().slice(0,10)+'.json','application/json')},
+ csv(){const r=[['Type','Name','Qty','Box','Room','Status','Date','Carrier']],q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';S.boxes.forEach(b=>r.push(['Box','Box '+b.n+(b.desc?' - '+b.desc:''),'',b.parent?'Box '+b.parent:'',b.room,b.status,b.date,b.carrier]));S.items.forEach(i=>r.push(['Item',i.name,i.qty,i.box?'Box '+i.box:'',i.box?box(i.box).room:i.room,i.status,i.date,i.carrier]));dl(r.map(x=>x.map(q).join(',')).join('\n'),'packing-list.csv','text/csv')},
+ async persist(){toast(navigator.storage&&await navigator.storage.persist()?'Data protected':'Install the app to home screen first, then try again')},
+ rc(d,el){S.rooms[d.v]=el.value;save()},
+ room(){dlg('New room',`<input id="n" placeholder="Room name">`,x=>{const n=x.querySelector('#n').value.trim();if(n&&!S.rooms[n]){S.rooms[n]='#5f6368';save();render()}})}
+};
+function dl(txt,name,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type}));a.download=name;a.click()}
+function drawLabel(doc,p,b,s){
+ const c=s%p.cols,r=Math.floor(s/p.cols),x=p.mL+p.ox+c*(p.w+p.gx)+p.pad,y=p.mT+p.oy+r*(p.h+p.gy)+p.pad,w=p.w-2*p.pad,h=p.h-2*p.pad,bh=Math.min(h*.34,16);
+ const [R,G,B]=[1,3,5].map(i=>parseInt(col(b.room).slice(i,i+2),16));doc.setFillColor(R,G,B);doc.rect(x,y,w,bh,'F');
+ doc.setTextColor(255);doc.setFont('helvetica','bold');doc.setFontSize(Math.min(bh*1.8,36));doc.text('Box '+b.n,x+2.5,y+bh/2,{baseline:'middle'});
+ doc.setFontSize(Math.min(bh*.9,14));doc.text(b.room,x+w-2.5,y+bh/2,{baseline:'middle',align:'right'});
+ const qs=Math.min(h-bh-2,w*.48),qx=x+w-qs,qy=y+bh+(h-bh-qs)/2,q=qrcode(0,'M');q.addData(url(b.n));q.make();const n=q.getModuleCount(),m=qs/(n+2);
+ doc.setFillColor(0);for(let i=0;i<n;i++)for(let j=0;j<n;j++)if(q.isDark(i,j))doc.rect(qx+(j+1)*m,qy+(i+1)*m,m+.02,m+.02,'F');
+ doc.setTextColor(0);const tw=w-qs-3,lines=[];if(b.desc)lines.push(...doc.setFontSize(13).splitTextToSize(b.desc,tw));
+ doc.setFontSize(13);doc.text(lines.slice(0,3),x+1,qy+4,{baseline:'top'});
+ doc.setFont('helvetica','normal');doc.setFontSize(10);doc.text([b.size+' box',...(b.flags||[])].join(' · '),x+1,y+h-1,{baseline:'bottom',maxWidth:tw})}
+function exportPdf(){
+ const p=P(),per=p.cols*p.rows,sel=S.boxes.filter(b=>SEL.has(b.n));if(!sel.length)return toast('Tick at least one box');
+ const doc=new jspdf.jsPDF({unit:'mm',format:'a4'});let cur=new Set(S.used[p.name]||[]);
+ sel.forEach(b=>{let s=0;while(s<per&&cur.has(s))s++;if(s>=per){doc.addPage();cur=new Set();s=0}cur.add(s);drawLabel(doc,p,b,s);b.printed=true});
+ S.used[p.name]=cur.size>=per?[]:[...cur];log(`Labels exported: ${sel.map(b=>b.n).join(', ')}`);SEL=new Set();save();doc.save('box-labels.pdf');render()}
+document.addEventListener('click',e=>{const a=e.target.closest('[data-a]');if(!a||a.matches('input[type=text],input[type=number],input[type=color],select,input[type=checkbox]'))return;act[a.dataset.a]?.(a.dataset,a)});
+document.addEventListener('input',e=>{if(e.target.dataset.a=='q')act.q({},e.target)});
+document.addEventListener('change',async e=>{
+ const el=e.target,d=el.dataset;
+ if(d.a&&d.a!='q'){act[d.a]?.(d,el);return}
+ if(d.f=='imp'){const f=el.files[0];if(!f||!confirm('Replace everything in the app with this backup?'))return;try{S=JSON.parse(await f.text());await save();toast('Backup restored');render()}catch(x){toast('Not a valid backup file')}return}
+ if(!d.f)return;const o=d.k=='b'?box(+d.id):item(+d.id);if(!o)return;
+ if(d.f=='photo'){if(el.files[0]){o.photo=await pic(el.files[0]);log(`${d.k=='b'?'Box '+o.n:o.name}: photo added`)}}
+ else if(d.f=='flag'){o.flags=o.flags||[];el.checked?o.flags.push(d.v):o.flags=o.flags.filter(x=>x!=d.v)}
+ else if(d.f=='parent'){o.parent=el.value?+el.value:null;log(`Box ${o.n}: put ${o.parent?'inside Box '+o.parent:'outside any box'}`)}
+ else if(d.f=='room'){o.room=el.value;if(d.k=='b')its(o.n).forEach(i=>i.room=el.value)}
+ else if(d.f=='qty')o.qty=Math.max(1,+el.value||1);
+ else{o[d.f]=el.value;if(d.f=='date')log(`${d.k=='b'?'Box '+o.n:o.name}: trip date ${el.value||'cleared'}`)}
+ save();render()});
+addEventListener('hashchange',()=>{render();scrollTo(0,0)});
+(async()=>{S=await load()||fresh();S.used=S.used||{};render();
+ if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+ SEL=new Set(S.boxes.filter(b=>!b.printed).map(b=>b.n))})();
+</script></body></html>
