@@ -78,15 +78,29 @@ const carriers=()=>`<datalist id="cr"><option>Us, trip 1<option>Us, trip 2<optio
 function vHome(){
  const u=units(),c=ST.map(s=>u.filter(x=>x.o.status==s).length);
  const rooms=Object.keys(S.rooms).map(r=>{const a=u.filter(x=>x.room==r);return a.length?`<a class="row" href="#/list" data-a="rm" data-v="${esc(r)}"><i class="sw" style="background:${col(r)}"></i><div class="g"><b>${esc(r)}</b></div><small>${a.filter(x=>x.o.status=='Placed').length}/${a.length} placed</small></a>`:''}).join('');
- return `<h1>Move Tracker</h1><div class="grid">${ST.map((s,i)=>`<a href="#/list" data-a="fs" data-v="${s}"><div><b>${c[i]}</b><small>${s}</small></div></a>`).join('')}</div>
+ return `<h1>Move Tracker</h1><input id="hq" data-a="hs" placeholder="Find an item, e.g. mop" autocomplete="off"><div id="hr"></div>${prog()}
  <div class="chips" style="margin:12px 0"><button class="pri" data-a="nb">+ Box</button><button data-a="ni">+ Standalone item</button><a href="#/scan"><button>Scan box</button></a></div>
- ${u.length?'<h2>By room</h2>'+rooms:'<div class="card">Nothing yet. Add a box or a large item to start.</div>'}`}
+ ${u.length?'<h2>By room</h2>'+rooms:''}`}
+const chain=b=>{const a=[b];while(a[a.length-1].parent&&box(a[a.length-1].parent)&&a.length<20)a.push(box(a[a.length-1].parent));return a};
+function results(q,f){
+ q=q.toLowerCase().trim();if(!q)return '';
+ const okS=x=>!f.st||x.status==f.st,rm=i=>{const b=i.box&&box(i.box);return b?b.room:i.room};
+ let h=S.items.filter(i=>okS(i)&&(!f.room||rm(i)==f.room)&&i.name.toLowerCase().includes(q)).map(i=>{const b=i.box&&box(i.box);
+  return `<a class="row" href="#/${b?'box/'+b.n:'item/'+i.id}"><i class="sw" style="background:${col(rm(i))}"></i><div class="g"><b>${esc(i.name)}</b><small>${b?'In '+chain(b).map(x=>'Box '+x.n+(x==b&&b.desc?' ('+esc(b.desc)+')':'')).join(', inside '):'Not in a box'} · ${esc(rm(i))}</small></div>${pill(i.status)}</a>`}).join('');
+ h+=S.boxes.filter(b=>okS(b)&&(!f.room||b.room==f.room)&&('box '+b.n+' '+(b.desc||'')).toLowerCase().includes(q)).map(b=>row({k:'b',o:b,room:b.room})).join('');
+ return h||'<p class="mut">No matches.</p>'}
+function prog(){
+ const t=S.pm=='b'?units().map(x=>x.o):[...S.items,...S.boxes.filter(b=>!desc(b.n).some(m=>its(m).length))],n=t.length;
+ if(!n)return '<div class="card">Nothing to track yet. Add a box or a large item to start.</div>';
+ const c=ST.map(s=>t.filter(x=>x.status==s).length),pc=v=>Math.round(v*100/n),k=['#8a8780','#d9a21b','#3b9a4a','#2563eb'];
+ return `<div class="card"><div class="chips" style="margin-bottom:10px"><button data-a="pm" data-v="i" class="${S.pm!='b'?'pri':''}">Every item</button><button data-a="pm" data-v="b" class="${S.pm=='b'?'pri':''}">Boxes &amp; big items</button></div>
+ <div style="display:flex;height:36px;border-radius:8px;overflow:hidden;background:var(--line)">${c.map((v,i)=>v?`<div style="width:${v*100/n}%;background:${k[i]};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.8rem">${pc(v)>=8?pc(v)+'%':''}</div>`:'').join('')}</div>
+ <div class="grid" style="margin-top:10px;grid-template-columns:repeat(2,1fr)">${ST.map((s,i)=>`<a href="#/list" data-a="fs" data-v="${s}" style="display:flex;gap:8px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px"><i style="width:12px;height:12px;border-radius:3px;background:${k[i]};flex:none"></i><span><b>${c[i]}</b> ${s}<small style="display:block">${pc(c[i])}%</small></span></a>`).join('')}</div>
+ ${[['Left the house',n-c[0]],['In the apartment',c[2]+c[3]],['Set up',c[3]]].map(([l,v])=>`<div style="margin-top:10px"><div style="display:flex;justify-content:space-between"><span>${l}</span><b>${pc(v)}%</b></div><div style="height:8px;border-radius:4px;background:var(--line)"><div style="height:100%;width:${pc(v)}%;background:var(--kraft);border-radius:4px"></div></div></div>`).join('')}</div>`}
 function vList(){
  const q=Q.q.toLowerCase();let h='';
  if(!q){h=units().filter(x=>(!Q.st||x.o.status==Q.st)&&(!Q.room||x.room==Q.room)).map(row).join('')}
- else{
-  h=S.boxes.filter(b=>(!Q.st||b.status==Q.st)&&(!Q.room||b.room==Q.room)&&(('box '+b.n+' '+(b.desc||'')).toLowerCase().includes(q))).map(b=>row({k:'b',o:b,room:b.room})).join('');
-  h+=S.items.filter(i=>(!Q.st||i.status==Q.st)&&i.name.toLowerCase().includes(q)).map(i=>{const b=i.box&&box(i.box);return b?`<a class="row" href="#/box/${b.n}"><i class="sw" style="background:${col(b.room)}"></i><div class="g"><b>${esc(i.name)}</b><small>in ${esc(nm(b))} · ${esc(b.room)}</small></div>${pill(i.status)}</a>`:row({k:'i',o:i,room:i.room})}).join('')}
+ else h=results(Q.q,Q)
  return `<h1>Everything</h1><input id="q" placeholder="Search boxes and items" value="${esc(Q.q)}" data-a="q"><div class="num" style="margin:8px 0"><select data-a="qs"><option value="">All statuses</option>${opts(ST,Q.st)}</select><select data-a="qr"><option value="">All rooms</option>${opts(Object.keys(S.rooms),Q.room)}</select></div>${h||'<p class="mut">No matches.</p>'}`}
 function vBox(n){
  const b=box(n);if(!b)return '<p>Box not found. <a href="#/list">Back</a></p>';
@@ -141,6 +155,8 @@ function render(){
 function newBox(){const b={n:S.nb++,size:'Medium',room:'General',status:'At house',flags:[],created:Date.now()};S.boxes.push(b);log(`Box ${b.n}: created`);save();location.hash='#/box/'+b.n}
 const act={
  nb:newBox,
+ pm(d){S.pm=d.v;save();render()},
+ hs(d,el){$('#hr').innerHTML=results(el.value,{st:'',room:''})},
  ni(){dlg('New standalone item',`<input id="n" placeholder="Name (e.g. Fridge)"><label>Room</label><select id="r">${opts(Object.keys(S.rooms))}</select>`,d=>{const name=d.querySelector('#n').value.trim();if(!name)return;const i={id:S.ni++,name,qty:1,box:null,room:d.querySelector('#r').value,status:'At house'};S.items.push(i);log(`${name}: added`);save();location.hash='#/item/'+i.id})},
  st(d){setStatus(d.k,+d.id,d.v);render()},
  addi(d){const t=$('#add').value,n=+d.id,b=box(n);t.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(s=>{const m=s.match(/^(\d+)\s*[x×]\s*(.+)$/i);S.items.push({id:S.ni++,name:m?m[2]:s,qty:m?+m[1]:1,box:n,room:b.room,status:b.status})});log(`Box ${n}: items added`);save();render()},
@@ -182,7 +198,7 @@ function exportPdf(){
  sel.forEach(b=>{let s=0;while(s<per&&cur.has(s))s++;if(s>=per){doc.addPage();cur=new Set();s=0}cur.add(s);drawLabel(doc,p,b,s);b.printed=true});
  S.used[p.name]=cur.size>=per?[]:[...cur];log(`Labels exported: ${sel.map(b=>b.n).join(', ')}`);SEL=new Set();save();doc.save('box-labels.pdf');render()}
 document.addEventListener('click',e=>{const a=e.target.closest('[data-a]');if(!a||a.matches('input[type=text],input[type=number],input[type=color],select,input[type=checkbox]'))return;act[a.dataset.a]?.(a.dataset,a)});
-document.addEventListener('input',e=>{if(e.target.dataset.a=='q')act.q({},e.target)});
+document.addEventListener('input',e=>{if(e.target.dataset.a=='q')act.q({},e.target);if(e.target.dataset.a=='hs')act.hs({},e.target)});
 document.addEventListener('change',async e=>{
  const el=e.target,d=el.dataset;
  if(d.a&&d.a!='q'){act[d.a]?.(d,el);return}
