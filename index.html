@@ -47,7 +47,7 @@ video{width:100%;border-radius:10px;background:#000}
 const ST=['At house','In transit','Arrived','Placed'],SZ=['Small','Medium','Large'],FL=['Fragile','Heavy','Open first','This way up'];
 const DEF={name:'8-up A4 (99.1x67.7)',cols:2,rows:4,w:99.1,h:67.7,mL:4.65,mT:13.1,mR:4.65,mB:13.1,gx:2.5,gy:0,pad:3,ox:0,oy:0};
 const PF=[['cols','Columns'],['rows','Rows'],['w','Label width (mm)'],['h','Label height (mm)'],['mL','Left margin'],['mT','Top margin'],['mR','Right margin'],['mB','Bottom margin'],['gx','Horizontal gap'],['gy','Vertical gap'],['pad','Inner label padding'],['ox','Nudge X (mm)'],['oy','Nudge Y (mm)']];
-let S,Q={q:'',st:'',room:''},SEL=new Set(),stream=null;
+let S,Q={q:'',st:'',room:''},SEL=new Set(),SELI=new Set(),stream=null;
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=t=>new Date(t).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 let _db;const idb=()=>_db||(_db=new Promise((ok,no)=>{const r=indexedDB.open('move',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)}));
@@ -58,7 +58,7 @@ const box=n=>S.boxes.find(b=>b.n==n),item=i=>S.items.find(x=>x.id==i),kids=n=>S.
 const desc=n=>[n,...kids(n).flatMap(k=>desc(k.n))],col=r=>S.rooms[r]||'#5f6368',P=()=>S.presets.find(p=>p.name==S.cur)||S.presets[0];
 const log=m=>{S.log.unshift({t:new Date().toISOString(),m});S.log.length=Math.min(S.log.length,1500)};
 const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2200)};
-const url=n=>location.origin+location.pathname+'#/box/'+n;
+const url=n=>location.origin+location.pathname+'#/box/'+n,iurl=n=>location.origin+location.pathname+'#/item/'+n;
 const pill=s=>`<span class="pill s${ST.indexOf(s)}">${s}</span>`;
 const nm=b=>'Box '+b.n+(b.desc?' ('+b.desc+')':'');
 function dlg(title,body,ok){const d=$('#dlg');d.innerHTML=`<form method="dialog"><h3>${title}</h3>${body}<div class="row" style="margin-top:12px"><button value="x">Cancel</button><button value="ok" class="pri">OK</button></div></form>`;d.onclose=()=>{d.returnValue=='ok'&&ok(d)};d.showModal()}
@@ -123,14 +123,17 @@ function vItem(id){
  const i=item(id);if(!i)return '<p>Item not found.</p>';
  return `<div class="hero" style="background:${col(i.room)}"><b style="font-size:1.6rem">${esc(i.name)}</b><div>${esc(i.room)}</div></div>${stBtns('i',id,i.status)}
  <div class="card">${fld('i',id,'name','Name',i.name)}<div class="num">${fld('i',id,'qty','Quantity',i.qty,'number','min=1')}<div><label>Room</label><select data-f="room" data-k="i" data-id="${id}">${opts(Object.keys(S.rooms),i.room)}</select></div></div>
- <div class="num">${fld('i',id,'date','Trip date (optional)',i.date||'','date')}${fld('i',id,'carrier','Carried by',i.carrier||'','text','list="cr"')}</div>${carriers()}${fld('i',id,'note','Notes (size, door/lift fit...)',i.note||'')}${photo('i',id,i)}</div>
+ <div class="num">${fld('i',id,'date','Trip date (optional)',i.date||'','date')}${fld('i',id,'carrier','Carried by',i.carrier||'','text','list="cr"')}</div>${carriers()}${fld('i',id,'note','Notes (size, door/lift fit...)',i.note||'')}
+ <label style="display:flex;gap:8px;align-items:center;color:inherit;font-size:1rem;margin-top:12px"><input type="checkbox" style="width:20px;flex:none" data-f="sticker" data-k="i" data-id="${id}"${i.sticker?' checked':''}>Print sticker(s) for this item</label>
+ ${i.sticker?fld('i',id,'parts','Boxes in this set (1 = complete in one box)',i.parts||1,'number','min=1')+'<small>One sticker is printed per box: "Box 1 of 2", "Box 2 of 2"...</small>':''}${photo('i',id,i)}</div>
+ ${i.sticker?`<div class="card"><div class="qr">${qrSvg(iurl(id))}</div></div>`:''}
  <button class="warn" data-a="rmi" data-id="${id}">Delete item</button>`}
 function vScan(){setTimeout(startScan,50);return `<h1>Scan a box label</h1><video id="vid" playsinline muted></video><p id="sm" class="mut">Point the camera at a box QR code.</p>`}
 async function startScan(){
  const v=$('#vid');if(!v)return;
  if(!('BarcodeDetector' in window)){$('#sm').textContent='In-app scanning is not available in this browser. Scan with your normal camera app instead.';return}
  try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});v.srcObject=stream;await v.play();const d=new BarcodeDetector({formats:['qr_code']});
-  const tick=async()=>{if(!stream)return;try{const r=await d.detect(v);const m=r[0]&&r[0].rawValue.match(/#\/box\/(\d+)/);if(m){stopScan();location.hash='#/box/'+m[1];return}}catch(e){}setTimeout(tick,250)};tick()}
+  const tick=async()=>{if(!stream)return;try{const r=await d.detect(v);const m=r[0]&&r[0].rawValue.match(/#\/(box|item)\/(\d+)/);if(m){stopScan();location.hash='#/'+m[1]+'/'+m[2];return}}catch(e){}setTimeout(tick,250)};tick()}
  catch(e){$('#sm').textContent='Camera blocked. Allow camera access for this app and try again.'}}
 const stopScan=()=>{stream&&stream.getTracks().forEach(t=>t.stop());stream=null};
 function vLabels(){
@@ -143,7 +146,8 @@ function vLabels(){
  <div class="slots" style="grid-template-columns:repeat(${p.cols},1fr);margin:8px 0">${Array.from({length:per},(_,i)=>`<button data-a="slot" data-v="${i}" class="${used.has(i)?'u':''}">${used.has(i)?'used':i+1}</button>`).join('')}</div><button data-a="newsheet">New sheet (all free)</button></div>
  <div class="card"><h2>Boxes to print</h2><div class="chips"><button data-a="sel" data-v="new">Unprinted</button><button data-a="sel" data-v="all">All</button><button data-a="sel" data-v="none">None</button></div>
  ${S.boxes.map(b=>`<label style="display:flex;gap:10px;align-items:center;color:inherit;font-size:1rem;margin:8px 0"><input type="checkbox" style="width:20px;flex:none" data-a="pick" data-id="${b.n}"${SEL.has(b.n)?' checked':''}><i class="sw" style="background:${col(b.room)};width:10px;height:22px;align-self:auto"></i><span style="flex:1">${esc(nm(b))}</span><small>${b.printed?'printed':''}</small></label>`).join('')||'<small>No boxes yet.</small>'}
- <button class="pri" style="width:100%;margin-top:8px" data-a="pdf">Export PDF (${SEL.size})</button><small>Print at 100% / Actual size, not Fit to page.</small></div>`}
+ ${S.items.some(i=>i.sticker&&!i.box)?'<h2 style="margin-top:14px">Item stickers</h2>':''}${S.items.filter(i=>i.sticker&&!i.box).map(i=>`<label style="display:flex;gap:10px;align-items:center;color:inherit;font-size:1rem;margin:8px 0"><input type="checkbox" style="width:20px;flex:none" data-a="pickI" data-id="${i.id}"${SELI.has(i.id)?' checked':''}><i class="sw" style="background:${col(i.room)};width:10px;height:22px;align-self:auto"></i><span style="flex:1">${esc(i.name)}${i.parts>1?' (set of '+i.parts+')':''}</span><small>${i.printed?'printed':''}</small></label>`).join('')}
+ <button class="pri" style="width:100%;margin-top:8px" data-a="pdf">Export PDF (${SEL.size+S.items.filter(i=>SELI.has(i.id)).reduce((a,i)=>a+(i.parts||1),0)} labels)</button><small>Print at 100% / Actual size, not Fit to page.</small></div>`}
 function vMore(){return `<h1>More</h1>
  <div class="card"><h2>Backup</h2><small>Everything is stored on this phone. Save a backup file now and then, or open it on another device.</small><div class="chips" style="margin-top:8px"><button data-a="exp">Export backup</button><label class="btn" style="margin:0"><span class="pill" style="display:inline-block;padding:10px 14px">Import backup</span><input type="file" accept=".json" data-f="imp"></label><button data-a="csv">Packing list (CSV)</button></div><button style="margin-top:8px" data-a="persist">Protect data from auto-clearing</button></div>
  <div class="card"><h2>Rooms</h2>${Object.keys(S.rooms).map(r=>`<div class="li"><i class="sw" style="background:${S.rooms[r]};width:18px;height:18px"></i><span>${esc(r)}</span><input type="color" style="width:50px;padding:2px" data-a="rc" data-v="${esc(r)}" value="${S.rooms[r]}"></div>`).join('')}<button style="margin-top:8px" data-a="room">Add room</button></div>
@@ -173,7 +177,8 @@ const act={
  slot(d){const s=new Set(S.used[S.cur]||[]),i=+d.v;s.has(i)?s.delete(i):s.add(i);S.used[S.cur]=[...s];save();render()},
  newsheet(){S.used[S.cur]=[];save();render()},
  pick(d,el){el.checked?SEL.add(+d.id):SEL.delete(+d.id);render()},
- sel(d){SEL=new Set(S.boxes.filter(b=>d.v=='all'||(d.v=='new'&&!b.printed)).map(b=>b.n));render()},
+ pickI(d,el){el.checked?SELI.add(+d.id):SELI.delete(+d.id);render()},
+ sel(d){SEL=new Set(S.boxes.filter(b=>d.v=='all'||(d.v=='new'&&!b.printed)).map(b=>b.n));SELI=new Set(S.items.filter(i=>i.sticker&&!i.box&&(d.v=='all'||(d.v=='new'&&!i.printed))).map(i=>i.id));render()},
  pdf:exportPdf,
  exp(){dl(JSON.stringify(S),'move-backup-'+new Date().toISOString().slice(0,10)+'.json','application/json')},
  csv(){const r=[['Type','Name','Qty','Box','Room','Status','Date','Carrier']],q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';S.boxes.forEach(b=>r.push(['Box','Box '+b.n+(b.desc?' - '+b.desc:''),'',b.parent?'Box '+b.parent:'',b.room,b.status,b.date,b.carrier]));S.items.forEach(i=>r.push(['Item',i.name,i.qty,i.box?'Box '+i.box:'',i.box?box(i.box).room:i.room,i.status,i.date,i.carrier]));dl(r.map(x=>x.map(q).join(',')).join('\n'),'packing-list.csv','text/csv')},
@@ -185,18 +190,21 @@ function dl(txt,name,type){const a=document.createElement('a');a.href=URL.create
 function drawLabel(doc,p,b,s){
  const c=s%p.cols,r=Math.floor(s/p.cols),x=p.mL+p.ox+c*(p.w+p.gx)+p.pad,y=p.mT+p.oy+r*(p.h+p.gy)+p.pad,w=p.w-2*p.pad,h=p.h-2*p.pad,bh=Math.min(h*.34,16);
  const [R,G,B]=[1,3,5].map(i=>parseInt(col(b.room).slice(i,i+2),16));doc.setFillColor(R,G,B);doc.rect(x,y,w,bh,'F');
- doc.setTextColor(255);doc.setFont('helvetica','bold');doc.setFontSize(Math.min(bh*1.8,36));doc.text('Box '+b.n,x+2.5,y+bh/2,{baseline:'middle'});
+ doc.setTextColor(255);doc.setFont('helvetica','bold');doc.setFontSize(Math.min(bh*.9,14));const rw=doc.getTextWidth(b.room)+4,tt=b.isItem?b.name:'Box '+b.n;let fs=Math.min(bh*1.8,36);doc.setFontSize(fs);while(fs>8&&doc.getTextWidth(tt)>w-5-rw){fs--;doc.setFontSize(fs)}doc.text(tt,x+2.5,y+bh/2,{baseline:'middle'});
  doc.setFontSize(Math.min(bh*.9,14));doc.text(b.room,x+w-2.5,y+bh/2,{baseline:'middle',align:'right'});
- const qs=Math.min(h-bh-2,w*.48),qx=x+w-qs,qy=y+bh+(h-bh-qs)/2,q=qrcode(0,'M');q.addData(url(b.n));q.make();const n=q.getModuleCount(),m=qs/(n+2);
+ const qs=Math.min(h-bh-2,w*.48),qx=x+w-qs,qy=y+bh+(h-bh-qs)/2,q=qrcode(0,'M');q.addData(b.isItem?iurl(b.id):url(b.n));q.make();const n=q.getModuleCount(),m=qs/(n+2);
  doc.setFillColor(0);for(let i=0;i<n;i++)for(let j=0;j<n;j++)if(q.isDark(i,j))doc.rect(qx+(j+1)*m,qy+(i+1)*m,m+.02,m+.02,'F');
- doc.setTextColor(0);const tw=w-qs-3,lines=[];if(b.desc)lines.push(...doc.setFontSize(13).splitTextToSize(b.desc,tw));
- doc.setFontSize(13);doc.text(lines.slice(0,3),x+1,qy+4,{baseline:'top'});
- doc.setFont('helvetica','normal');doc.setFontSize(10);doc.text([b.size+' box',...(b.flags||[])].join(' · '),x+1,y+h-1,{baseline:'bottom',maxWidth:tw})}
+ doc.setTextColor(0);const tw=w-qs-3,lines=[],big=b.isItem?(b.parts>1?'Box '+b.part+' of '+b.parts:'Complete'):b.desc,fz=b.isItem?20:13;
+ if(big)lines.push(...doc.setFontSize(fz).splitTextToSize(big,tw));
+ doc.setFontSize(fz);doc.text(lines.slice(0,3),x+1,qy+4,{baseline:'top'});
+ doc.setFont('helvetica','normal');doc.setFontSize(10);doc.text((b.isItem?[b.parts>1?'Set of '+b.parts+' boxes':'1 box',b.note||'']:[b.size+' box',...(b.flags||[])]).filter(Boolean).join(' · '),x+1,y+h-1,{baseline:'bottom',maxWidth:tw})}
 function exportPdf(){
- const p=P(),per=p.cols*p.rows,sel=S.boxes.filter(b=>SEL.has(b.n));if(!sel.length)return toast('Tick at least one box');
+ const p=P(),per=p.cols*p.rows,bs=S.boxes.filter(b=>SEL.has(b.n)),is=S.items.filter(i=>SELI.has(i.id)),jobs=[...bs];
+ is.forEach(i=>{for(let k=1;k<=(i.parts||1);k++)jobs.push({...i,isItem:true,part:k,parts:i.parts||1,_src:i})});
+ if(!jobs.length)return toast('Tick at least one label');
  const doc=new jspdf.jsPDF({unit:'mm',format:'a4'});let cur=new Set(S.used[p.name]||[]);
- sel.forEach(b=>{let s=0;while(s<per&&cur.has(s))s++;if(s>=per){doc.addPage();cur=new Set();s=0}cur.add(s);drawLabel(doc,p,b,s);b.printed=true});
- S.used[p.name]=cur.size>=per?[]:[...cur];log(`Labels exported: ${sel.map(b=>b.n).join(', ')}`);SEL=new Set();save();doc.save('box-labels.pdf');render()}
+ jobs.forEach(b=>{let s=0;while(s<per&&cur.has(s))s++;if(s>=per){doc.addPage();cur=new Set();s=0}cur.add(s);drawLabel(doc,p,b,s);(b._src||b).printed=true});
+ S.used[p.name]=cur.size>=per?[]:[...cur];log(`Labels exported: ${[...bs.map(b=>'Box '+b.n),...is.map(i=>i.name)].join(', ')}`);SEL=new Set();SELI=new Set();save();doc.save('box-labels.pdf');render()}
 document.addEventListener('click',e=>{const a=e.target.closest('[data-a]');if(!a||a.matches('input[type=text],input[type=number],input[type=color],select,input[type=checkbox]'))return;act[a.dataset.a]?.(a.dataset,a)});
 document.addEventListener('input',e=>{if(e.target.dataset.a=='q')act.q({},e.target);if(e.target.dataset.a=='hs')act.hs({},e.target)});
 document.addEventListener('change',async e=>{
@@ -208,11 +216,12 @@ document.addEventListener('change',async e=>{
  else if(d.f=='flag'){o.flags=o.flags||[];el.checked?o.flags.push(d.v):o.flags=o.flags.filter(x=>x!=d.v)}
  else if(d.f=='parent'){o.parent=el.value?+el.value:null;log(`Box ${o.n}: put ${o.parent?'inside Box '+o.parent:'outside any box'}`)}
  else if(d.f=='room'){o.room=el.value;if(d.k=='b')its(o.n).forEach(i=>i.room=el.value)}
- else if(d.f=='qty')o.qty=Math.max(1,+el.value||1);
+ else if(d.f=='qty'||d.f=='parts')o[d.f]=Math.max(1,+el.value||1);
+ else if(d.f=='sticker'){o.sticker=el.checked;if(el.checked){o.printed=false;SELI.add(o.id)}else SELI.delete(o.id)}
  else{o[d.f]=el.value;if(d.f=='date')log(`${d.k=='b'?'Box '+o.n:o.name}: trip date ${el.value||'cleared'}`)}
  save();render()});
 addEventListener('hashchange',()=>{render();scrollTo(0,0)});
 (async()=>{S=await load()||fresh();S.used=S.used||{};render();
  if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
- SEL=new Set(S.boxes.filter(b=>!b.printed).map(b=>b.n))})();
+ SEL=new Set(S.boxes.filter(b=>!b.printed).map(b=>b.n));SELI=new Set(S.items.filter(i=>i.sticker&&!i.box&&!i.printed).map(i=>i.id))})();
 </script></body></html>
