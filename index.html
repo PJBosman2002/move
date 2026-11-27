@@ -38,6 +38,7 @@ dialog::backdrop{background:#0007}dialog .row{background:none;border:0;padding:0
 .slots{display:grid;gap:3px}.slots button{min-height:26px;padding:0;font-size:.7rem}.slots .u{background:var(--line);color:var(--mut)}
 #toast{position:fixed;left:50%;bottom:78px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:99px;display:none}
 video{width:100%;border-radius:10px;background:#000}
+.op{background:#fff3c4;color:#5c4400;border-color:#e0b93c}.bad{background:#fde2e0;color:#8a1c12;border-color:#e8a29b}
 .num{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 </style></head><body>
 <main id="app"></main><div id="toast"></div><dialog id="dlg"></dialog>
@@ -47,7 +48,7 @@ video{width:100%;border-radius:10px;background:#000}
 const ST=['At house','In transit','Arrived','Placed'],SZ=['Small','Medium','Large'],FL=['Fragile','Heavy','Open first','This way up'];
 const DEF={name:'8-up A4 (99.1x67.7)',cols:2,rows:4,w:99.1,h:67.7,mL:4.65,mT:13.1,mR:4.65,mB:13.1,gx:2.5,gy:0,pad:3,ox:0,oy:0};
 const PF=[['cols','Columns'],['rows','Rows'],['w','Label width (mm)'],['h','Label height (mm)'],['mL','Left margin'],['mT','Top margin'],['mR','Right margin'],['mB','Bottom margin'],['gx','Horizontal gap'],['gy','Vertical gap'],['pad','Inner label padding'],['ox','Nudge X (mm)'],['oy','Nudge Y (mm)']];
-let S,Q={q:'',st:'',room:''},SEL=new Set(),SELI=new Set(),stream=null;
+let S,Q={q:'',st:'',room:''},SEL=new Set(),SELI=new Set(),stream=null,UP=0,SM='open',SL=[];
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=t=>new Date(t).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 let _db;const idb=()=>_db||(_db=new Promise((ok,no)=>{const r=indexedDB.open('move',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)}));
@@ -65,20 +66,27 @@ function dlg(title,body,ok){const d=$('#dlg');d.innerHTML=`<form method="dialog"
 function qrSvg(t){const q=qrcode(0,'M');q.addData(t);q.make();const n=q.getModuleCount();let p='';for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(q.isDark(r,c))p+=`M${c+1} ${r+1}h1v1h-1z`;return `<svg viewBox="0 0 ${n+2} ${n+2}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d="${p}" fill="#000"/></svg>`}
 const pic=f=>new Promise(ok=>{const im=new Image();im.onload=()=>{const k=Math.min(1,900/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.7))};im.src=URL.createObjectURL(f)});
 function setStatus(kind,id,st){
- if(kind=='b'){const b=box(id);log(`Box ${id}: ${b.status} to ${st}`);desc(id).forEach(m=>{box(m).status=st;its(m).forEach(i=>i.status=st)})}
+ if(kind=='b'){const b=box(id);log(`Box ${id}: ${b.status} to ${st}`);desc(id).forEach(m=>{box(m).status=st;its(m).forEach(i=>{i.status=st;i.done=st=='Placed'})})}
  else{const i=item(id);log(`${i.name}: ${i.status} to ${st}`);i.status=st}save()}
 const units=()=>[...S.boxes.filter(b=>!b.parent).map(b=>({k:'b',o:b,room:b.room})),...S.items.filter(i=>!i.box).map(i=>({k:'i',o:i,room:i.room}))];
-function row(u){const o=u.o,b=u.k=='b';return `<a class="row" href="#/${b?'box/'+o.n:'item/'+o.id}"><i class="sw" style="background:${col(u.room)}"></i><div class="g"><b>${b?'Box '+o.n+(o.desc?' · '+esc(o.desc):''):esc(o.name)}</b><small>${esc(u.room)}${b?' · '+o.size+' · '+its(o.n).length+' items'+(kids(o.n).length?', '+kids(o.n).length+' boxes':''):o.qty>1?' · x'+o.qty:''}${o.date?' · '+o.date:''}</small></div>${pill(o.status)}</a>`}
+function row(u){const o=u.o,b=u.k=='b';return `<a class="row" href="#/${b?'box/'+o.n:'item/'+o.id}"><i class="sw" style="background:${col(u.room)}"></i><div class="g"><b>${b?'Box '+o.n+(o.desc?' · '+esc(o.desc):''):esc(o.name)}</b><small>${esc(u.room)}${b?' · '+o.size+' · '+its(o.n).length+' items'+(kids(o.n).length?', '+kids(o.n).length+' boxes':''):o.qty>1?' · x'+o.qty:''}${o.date?' · '+o.date:''}</small></div>${o.issue?`<span class="pill bad">${o.issue}</span>`:''}${b&&!o.sealed?'<span class="pill op">Open</span>':''}${pill(o.status)}</a>`}
 const opts=(a,v)=>a.map(x=>`<option${x==v?' selected':''}>${esc(x)}</option>`).join('');
 const stBtns=(k,id,cur)=>`<div class="chips">${ST.map(s=>`<button data-a="st" data-k="${k}" data-id="${id}" data-v="${s}" class="${cur==s?'pri':''}">${s}</button>`).join('')}</div>`;
 const fld=(k,id,f,l,v,t='text',x='')=>`<label>${l}</label><input type="${t}" ${x} data-f="${f}" data-k="${k}" data-id="${id}" value="${esc(v)}">`;
 const photo=(k,id,o)=>`${o.photo?`<img class="ph" src="${o.photo}">`:''}<label class="btn" style="margin-top:8px"><span class="pill" style="display:inline-block;padding:10px 14px">${o.photo?'Replace photo':'Add photo'}</span><input type="file" accept="image/*" data-f="photo" data-k="${k}" data-id="${id}"></label>`;
+const issueUi=(k,id,o)=>`<label>Problem</label><select data-f="issue" data-k="${k}" data-id="${id}"><option value="">None</option>${['Missing','Damaged'].map(x=>`<option${o.issue==x?' selected':''}>${x}</option>`).join('')}</select>${o.issue?fld(k,id,'issueNote','What happened?',o.issueNote||''):''}`;
+const unpackList=n=>its(n).map(i=>`<label class="li" style="font-size:1.05rem;color:inherit;margin:0"><input type="checkbox" style="width:24px;height:24px;flex:none" data-a="tick" data-id="${i.id}"${i.done?' checked':''}><span style="${i.done?'text-decoration:line-through;color:var(--mut)':''}">${i.qty>1?i.qty+' x ':''}${esc(i.name)}</span></label>`).join('')||'<small>No items listed.</small>';
+function homeCards(){
+ const stale=!S.lastBackup||Date.now()-new Date(S.lastBackup)>864e5,o=S.boxes.filter(b=>!b.sealed&&b.status=='At house'),pr=S.boxes.filter(b=>b.issue).length+S.items.filter(i=>i.issue).length;
+ return (S.boxes.length+S.items.length>=3&&stale?`<div class="card" style="border-color:var(--kraft)"><b>Time for a backup</b><small style="display:block">${S.lastBackup?'Last backup '+fmt(S.lastBackup)+'.':'You have not saved a backup yet.'} Send the file to yourself on WhatsApp or email.</small><button class="pri" style="margin-top:8px" data-a="exp">Back up now</button></div>`:'')
+ +(o.length?`<a class="row" href="#/list" data-a="fo"><i class="sw" style="background:#d9a21b"></i><div class="g"><b>${o.length} open box${o.length>1?'es':''}</b><small>${o.slice(0,8).map(b=>'Box '+b.n).join(', ')}${o.length>8?'...':''}</small></div><small>View</small></a>`:'')
+ +(pr?`<a class="row" href="#/list" data-a="fi"><i class="sw" style="background:#b42318"></i><div class="g"><b>${pr} missing or damaged</b></div><small>View</small></a>`:'')}
 const carriers=()=>`<datalist id="cr"><option>Us, trip 1<option>Us, trip 2<option>Moving company</datalist>`;
 
 function vHome(){
  const u=units(),c=ST.map(s=>u.filter(x=>x.o.status==s).length);
  const rooms=Object.keys(S.rooms).map(r=>{const a=u.filter(x=>x.room==r);return a.length?`<a class="row" href="#/list" data-a="rm" data-v="${esc(r)}"><i class="sw" style="background:${col(r)}"></i><div class="g"><b>${esc(r)}</b></div><small>${a.filter(x=>x.o.status=='Placed').length}/${a.length} placed</small></a>`:''}).join('');
- return `<h1>Move Tracker</h1><input id="hq" data-a="hs" placeholder="Find an item, e.g. mop" autocomplete="off"><div id="hr"></div>${prog()}
+ return `<h1>Move Tracker</h1>${homeCards()}<input id="hq" data-a="hs" placeholder="Find an item, e.g. mop" autocomplete="off"><div id="hr"></div>${prog()}
  <div class="chips" style="margin:12px 0"><button class="pri" data-a="nb">+ Box</button><button data-a="ni">+ Standalone item</button><a href="#/scan"><button>Scan box</button></a></div>
  ${u.length?'<h2>By room</h2>'+rooms:''}`}
 const chain=b=>{const a=[b];while(a[a.length-1].parent&&box(a[a.length-1].parent)&&a.length<20)a.push(box(a[a.length-1].parent));return a};
@@ -99,21 +107,23 @@ function prog(){
  ${[['Left the house',n-c[0]],['In the apartment',c[2]+c[3]],['Set up',c[3]]].map(([l,v])=>`<div style="margin-top:10px"><div style="display:flex;justify-content:space-between"><span>${l}</span><b>${pc(v)}%</b></div><div style="height:8px;border-radius:4px;background:var(--line)"><div style="height:100%;width:${pc(v)}%;background:var(--kraft);border-radius:4px"></div></div></div>`).join('')}</div>`}
 function vList(){
  const q=Q.q.toLowerCase();let h='';
- if(!q){h=units().filter(x=>(!Q.st||x.o.status==Q.st)&&(!Q.room||x.room==Q.room)).map(row).join('')}
+ if(!q){h=Q.seal=='issue'?[...S.boxes.filter(b=>b.issue).map(b=>row({k:'b',o:b,room:b.room})),...S.items.filter(i=>i.issue).map(i=>row({k:'i',o:i,room:i.box&&box(i.box)?box(i.box).room:i.room}))].join(''):Q.seal?S.boxes.filter(b=>(Q.seal=='open')==!b.sealed&&(!Q.st||b.status==Q.st)&&(!Q.room||b.room==Q.room)).map(b=>row({k:'b',o:b,room:b.room})).join(''):units().filter(x=>(!Q.st||x.o.status==Q.st)&&(!Q.room||x.room==Q.room)).map(row).join('')}
  else h=results(Q.q,Q)
- return `<h1>Everything</h1><input id="q" placeholder="Search boxes and items" value="${esc(Q.q)}" data-a="q"><div class="num" style="margin:8px 0"><select data-a="qs"><option value="">All statuses</option>${opts(ST,Q.st)}</select><select data-a="qr"><option value="">All rooms</option>${opts(Object.keys(S.rooms),Q.room)}</select></div>${h||'<p class="mut">No matches.</p>'}`}
+ return `<h1>Everything</h1><input id="q" placeholder="Search boxes and items" value="${esc(Q.q)}" data-a="q"><div class="num" style="margin:8px 0"><select data-a="qs"><option value="">All statuses</option>${opts(ST,Q.st)}</select><select data-a="qr"><option value="">All rooms</option>${opts(Object.keys(S.rooms),Q.room)}</select></div><select data-a="qz" style="margin-bottom:8px"><option value="">Open and sealed</option><option value="open"${Q.seal=='open'?' selected':''}>Open boxes only</option><option value="sealed"${Q.seal=='sealed'?' selected':''}>Sealed boxes only</option><option value="issue"${Q.seal=='issue'?' selected':''}>Missing or damaged</option></select>${h||'<p class="mut">No matches.</p>'}`}
 function vBox(n){
  const b=box(n);if(!b)return '<p>Box not found. <a href="#/list">Back</a></p>';
  const ok=S.boxes.filter(x=>!desc(n).includes(x.n)),par=b.parent&&box(b.parent);
  return `<div class="hero" style="background:${col(b.room)}"><b>Box ${b.n}</b><div>${esc(b.room)} · ${b.size}${par?' · inside <a href="#/box/'+par.n+'"><u>Box '+par.n+'</u></a>':''}</div></div>
  ${stBtns('b',n,b.status)}
+ <div class="chips" style="margin-top:8px"><button data-a="seal" data-id="${n}" data-v="1" class="${b.sealed?'pri':''}">Sealed</button><button data-a="seal" data-id="${n}" data-v="" class="${!b.sealed?'pri':''}">Open</button></div>
  <div class="card">${fld('b',n,'desc','Descriptor (optional)',b.desc||'')}
  <div class="num"><div><label>Size</label><select data-f="size" data-k="b" data-id="${n}">${opts(SZ,b.size)}</select></div><div><label>Destination</label><select data-f="room" data-k="b" data-id="${n}">${opts(Object.keys(S.rooms),b.room)}</select></div></div>
  <label>Inside box</label><select data-f="parent" data-k="b" data-id="${n}"><option value="">Not in a box</option>${ok.map(x=>`<option value="${x.n}"${x.n==b.parent?' selected':''}>${esc(nm(x))}</option>`).join('')}</select>
  <div class="num">${fld('b',n,'date','Trip date (optional)',b.date||'','date')}${fld('b',n,'carrier','Carried by',b.carrier||'','text','list="cr"')}</div>${carriers()}
  <label>Flags</label><div class="chips">${FL.map(f=>`<label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" style="width:20px" data-f="flag" data-v="${f}" data-k="b" data-id="${n}"${(b.flags||[]).includes(f)?' checked':''}>${f}</label>`).join('')}</div>
- ${photo('b',n,b)}</div>
- <h2>Contents</h2>${its(n).map(i=>`<div class="li"><span>${i.qty>1?i.qty+' x ':''}${esc(i.name)}</span><button data-a="mv" data-id="${i.id}">Move</button><button class="warn" data-a="rmi" data-id="${i.id}">Delete</button></div>`).join('')||'<small>No items yet.</small>'}
+ ${issueUi('b',n,b)}${photo('b',n,b)}</div>
+ <div class="chips" style="justify-content:space-between;align-items:center;margin-top:14px"><h2 style="margin:0">Contents${UP==n?' - '+its(n).filter(i=>i.done).length+'/'+its(n).length+' unpacked':''}</h2><button data-a="up" data-id="${n}" class="${UP==n?'pri':''}" style="flex:none">Unpack mode</button></div>
+ ${UP==n?unpackList(n)+`<button style="margin-top:8px" data-a="st" data-k="b" data-id="${n}" data-v="Placed">Mark whole box Placed</button>`:its(n).map(i=>`<div class="li"><span>${i.qty>1?i.qty+' x ':''}${esc(i.name)}${i.issue?' <span class="pill bad">'+i.issue+'</span>':''}</span><a href="#/item/${i.id}"><button>Edit</button></a><button data-a="mv" data-id="${i.id}">Move</button><button class="warn" data-a="rmi" data-id="${i.id}">Delete</button></div>`).join('')||'<small>No items yet.</small>'}
  ${kids(n).map(k=>row({k:'b',o:k,room:k.room})).join('')}
  <div class="card"><label>Add items (one per line or comma-separated, "2x plates" sets quantity)</label><textarea id="add" rows="3"></textarea><button class="pri" style="margin-top:6px" data-a="addi" data-id="${n}">Add to box</button></div>
  <div class="card"><div class="qr">${qrSvg(url(n))}</div><small style="display:block;text-align:center;word-break:break-all">${esc(url(n))}</small></div>
@@ -125,15 +135,21 @@ function vItem(id){
  <div class="card">${fld('i',id,'name','Name',i.name)}<div class="num">${fld('i',id,'qty','Quantity',i.qty,'number','min=1')}<div><label>Room</label><select data-f="room" data-k="i" data-id="${id}">${opts(Object.keys(S.rooms),i.room)}</select></div></div>
  <div class="num">${fld('i',id,'date','Trip date (optional)',i.date||'','date')}${fld('i',id,'carrier','Carried by',i.carrier||'','text','list="cr"')}</div>${carriers()}${fld('i',id,'note','Notes (size, door/lift fit...)',i.note||'')}
  <label style="display:flex;gap:8px;align-items:center;color:inherit;font-size:1rem;margin-top:12px"><input type="checkbox" style="width:20px;flex:none" data-f="sticker" data-k="i" data-id="${id}"${i.sticker?' checked':''}>Print sticker(s) for this item</label>
- ${i.sticker?fld('i',id,'parts','Boxes in this set (1 = complete in one box)',i.parts||1,'number','min=1')+'<small>One sticker is printed per box: "Box 1 of 2", "Box 2 of 2"...</small>':''}${photo('i',id,i)}</div>
+ ${i.sticker?fld('i',id,'parts','Boxes in this set (1 = complete in one box)',i.parts||1,'number','min=1')+'<small>One sticker is printed per box: "Box 1 of 2", "Box 2 of 2"...</small>':''}${issueUi('i',id,i)}${photo('i',id,i)}</div>
  ${i.sticker?`<div class="card"><div class="qr">${qrSvg(iurl(id))}</div></div>`:''}
  <button class="warn" data-a="rmi" data-id="${id}">Delete item</button>`}
-function vScan(){setTimeout(startScan,50);return `<h1>Scan a box label</h1><video id="vid" playsinline muted></video><p id="sm" class="mut">Point the camera at a box QR code.</p>`}
+const slHtml=()=>SL.slice(0,30).map(x=>`<div class="li" style="${x.bad?'color:#b42318;font-weight:700':''}"><span>${esc(x.t)}</span></div>`).join('');
+function vScan(){setTimeout(startScan,50);return `<h1>Scan labels</h1><div class="chips" style="margin-bottom:8px">${[['open','Open box'],['In transit','Mark In transit'],['Arrived','Mark Arrived'],['Placed','Mark Placed']].map(([v,l])=>`<button data-a="sm" data-v="${v}" class="${SM==v?'pri':''}">${l}</button>`).join('')}</div><video id="vid" playsinline muted></video><p id="sm" class="mut">${SM=='open'?'Point the camera at a label to open it.':'Keep scanning: each label is marked '+SM+'. Open boxes are skipped when loading.'}</p><div id="sl">${slHtml()}</div>`}
 async function startScan(){
  const v=$('#vid');if(!v)return;
  if(!('BarcodeDetector' in window)){$('#sm').textContent='In-app scanning is not available in this browser. Scan with your normal camera app instead.';return}
- try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});v.srcObject=stream;await v.play();const d=new BarcodeDetector({formats:['qr_code']});
-  const tick=async()=>{if(!stream)return;try{const r=await d.detect(v);const m=r[0]&&r[0].rawValue.match(/#\/(box|item)\/(\d+)/);if(m){stopScan();location.hash='#/'+m[1]+'/'+m[2];return}}catch(e){}setTimeout(tick,250)};tick()}
+ try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});v.srcObject=stream;await v.play();const d=new BarcodeDetector({formats:['qr_code']});let last={t:'',at:0};
+  const tick=async()=>{if(!stream)return;try{const r=await d.detect(v),m=r[0]&&r[0].rawValue.match(/#\/(box|item)\/(\d+)/);
+   if(m&&!(last.t==r[0].rawValue&&Date.now()-last.at<3000)){last={t:r[0].rawValue,at:Date.now()};const k=m[1]=='box'?'b':'i',id=+m[2];
+    if(SM=='open'){stopScan();location.hash='#/'+m[1]+'/'+id;return}
+    const o=k=='b'?box(id):item(id);
+    if(o){let g;if(k=='b'&&SM=='In transit'&&!o.sealed)g={t:'Box '+id+' is still OPEN - not marked',bad:1};else{setStatus(k,id,SM);g={t:(k=='b'?'Box '+id:o.name)+' marked '+SM}}SL.unshift(g);navigator.vibrate&&navigator.vibrate(g.bad?[100,60,100]:40);$('#sl').innerHTML=slHtml()}}
+  }catch(e){}setTimeout(tick,250)};tick()}
  catch(e){$('#sm').textContent='Camera blocked. Allow camera access for this app and try again.'}}
 const stopScan=()=>{stream&&stream.getTracks().forEach(t=>t.stop());stream=null};
 function vLabels(){
@@ -159,11 +175,17 @@ function render(){
 function newBox(){const b={n:S.nb++,size:'Medium',room:'General',status:'At house',flags:[],created:Date.now()};S.boxes.push(b);log(`Box ${b.n}: created`);save();location.hash='#/box/'+b.n}
 const act={
  nb:newBox,
+ seal(d){const b=box(+d.id);b.sealed=!!d.v;log(`Box ${b.n}: ${b.sealed?'sealed':'opened'}`);save();render()},
+ up(d){UP=UP==+d.id?0:+d.id;render()},
+ sm(d){SM=d.v;SL=[];render()},
+ fo(){Q={q:'',st:'',room:'',seal:'open'}},fi(){Q={q:'',st:'',room:'',seal:'issue'}},
+ qz(d,el){Q.seal=el.value;render()},
+ tick(d,el){const i=item(+d.id),b=box(i.box);i.done=el.checked;i.status=el.checked?'Placed':'Arrived';if(el.checked&&its(b.n).every(x=>x.done)&&kids(b.n).every(k=>k.status=='Placed')&&b.status!='Placed'){setStatus('b',b.n,'Placed');toast('Box '+b.n+' fully unpacked')}else if(!el.checked&&b.status=='Placed')b.status='Arrived';save();render()},
  pm(d){S.pm=d.v;save();render()},
  hs(d,el){$('#hr').innerHTML=results(el.value,{st:'',room:''})},
  ni(){dlg('New standalone item',`<input id="n" placeholder="Name (e.g. Fridge)"><label>Room</label><select id="r">${opts(Object.keys(S.rooms))}</select>`,d=>{const name=d.querySelector('#n').value.trim();if(!name)return;const i={id:S.ni++,name,qty:1,box:null,room:d.querySelector('#r').value,status:'At house'};S.items.push(i);log(`${name}: added`);save();location.hash='#/item/'+i.id})},
- st(d){setStatus(d.k,+d.id,d.v);render()},
- addi(d){const t=$('#add').value,n=+d.id,b=box(n);t.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(s=>{const m=s.match(/^(\d+)\s*[x×]\s*(.+)$/i);S.items.push({id:S.ni++,name:m?m[2]:s,qty:m?+m[1]:1,box:n,room:b.room,status:b.status})});log(`Box ${n}: items added`);save();render()},
+ st(d){if(d.k=='b'&&d.v=='In transit'&&!box(+d.id).sealed&&!confirm('Box '+d.id+' is not sealed. Mark it in transit anyway?'))return;setStatus(d.k,+d.id,d.v);render()},
+ addi(d){const t=$('#add').value,n=+d.id,b=box(n);if(!t.trim())return;if(b.sealed){if(!confirm('Box '+n+' is sealed. Add items and mark it open?'))return;b.sealed=false}t.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).forEach(s=>{const m=s.match(/^(\d+)\s*[x×]\s*(.+)$/i);S.items.push({id:S.ni++,name:m?m[2]:s,qty:m?+m[1]:1,box:n,room:b.room,status:b.status})});log(`Box ${n}: items added`);save();render()},
  mv(d){const i=item(+d.id);dlg('Move item',`<select id="to"><option value="">Take out of box (standalone)</option>${S.boxes.map(b=>`<option value="${b.n}"${b.n==i.box?' selected':''}>${esc(nm(b))}</option>`).join('')}</select>`,x=>{const v=x.querySelector('#to').value,old=box(i.box);i.box=v?+v:null;if(v){i.status=box(+v).status;i.room=box(+v).room}else if(old)i.room=old.room;log(`Box ${old?old.n:'-'}: ${i.name} moved to ${v?'Box '+v:'standalone'}`);save();render()})},
  rmi(d){const i=item(+d.id);if(!confirm('Delete '+i.name+'?'))return;S.items=S.items.filter(x=>x!=i);log(`${i.box?'Box '+i.box+': ':''}${i.name} deleted`);save();location.hash=i.box?'#/box/'+i.box:'#/list';render()},
  delb(d){const n=+d.id,b=box(n);if(!confirm('Delete Box '+n+'? Its items become standalone and nested boxes move up one level.'))return;its(n).forEach(i=>{i.box=b.parent||null;if(!b.parent)i.room=b.room});kids(n).forEach(k=>k.parent=b.parent);S.boxes=S.boxes.filter(x=>x!=b);SEL.delete(n);log(`Box ${n}: deleted`);save();location.hash='#/list'},
@@ -180,7 +202,9 @@ const act={
  pickI(d,el){el.checked?SELI.add(+d.id):SELI.delete(+d.id);render()},
  sel(d){SEL=new Set(S.boxes.filter(b=>d.v=='all'||(d.v=='new'&&!b.printed)).map(b=>b.n));SELI=new Set(S.items.filter(i=>i.sticker&&!i.box&&(d.v=='all'||(d.v=='new'&&!i.printed))).map(i=>i.id));render()},
  pdf:exportPdf,
- exp(){dl(JSON.stringify(S),'move-backup-'+new Date().toISOString().slice(0,10)+'.json','application/json')},
+ async exp(){const nm='move-backup-'+new Date().toISOString().slice(0,10)+'.json',txt=JSON.stringify(S);let done=false;
+  try{const f=new File([txt],nm,{type:'application/json'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:'Move backup'});done=true}}catch(e){if(e.name=='AbortError')return}
+  if(!done)dl(txt,nm,'application/json');S.lastBackup=new Date().toISOString();save();render()},
  csv(){const r=[['Type','Name','Qty','Box','Room','Status','Date','Carrier']],q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';S.boxes.forEach(b=>r.push(['Box','Box '+b.n+(b.desc?' - '+b.desc:''),'',b.parent?'Box '+b.parent:'',b.room,b.status,b.date,b.carrier]));S.items.forEach(i=>r.push(['Item',i.name,i.qty,i.box?'Box '+i.box:'',i.box?box(i.box).room:i.room,i.status,i.date,i.carrier]));dl(r.map(x=>x.map(q).join(',')).join('\n'),'packing-list.csv','text/csv')},
  async persist(){toast(navigator.storage&&await navigator.storage.persist()?'Data protected':'Install the app to home screen first, then try again')},
  rc(d,el){S.rooms[d.v]=el.value;save()},
@@ -218,7 +242,7 @@ document.addEventListener('change',async e=>{
  else if(d.f=='room'){o.room=el.value;if(d.k=='b')its(o.n).forEach(i=>i.room=el.value)}
  else if(d.f=='qty'||d.f=='parts')o[d.f]=Math.max(1,+el.value||1);
  else if(d.f=='sticker'){o.sticker=el.checked;if(el.checked){o.printed=false;SELI.add(o.id)}else SELI.delete(o.id)}
- else{o[d.f]=el.value;if(d.f=='date')log(`${d.k=='b'?'Box '+o.n:o.name}: trip date ${el.value||'cleared'}`)}
+ else{o[d.f]=el.value;if(d.f=='date'||d.f=='issue')log(`${d.k=='b'?'Box '+o.n:o.name}: ${d.f=='date'?'trip date ':'problem '}${el.value||'cleared'}`)}
  save();render()});
 addEventListener('hashchange',()=>{render();scrollTo(0,0)});
 (async()=>{S=await load()||fresh();S.used=S.used||{};render();
